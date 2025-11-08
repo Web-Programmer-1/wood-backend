@@ -15,7 +15,7 @@ const createUser = async (req: Request) => {
     data: {
       email,
       password: hashedPassword,
-      role: role || UserRole.PATIENT,
+      role: role || UserRole.USER,
     },
   });
 

@@ -25,8 +25,10 @@ router.post(
     '/change-password',
     auth(
         UserRole.ADMIN,
-        UserRole.DOCTOR,
-        UserRole.PATIENT
+        UserRole.MANAGER,
+        UserRole.USER,
+        UserRole.EDITOR,
+        UserRole.SALES
     ),
     AuthController.changePassword
 );
