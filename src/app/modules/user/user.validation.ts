@@ -1,59 +1,13 @@
-import z from "zod";
+import { z } from "zod";
 
-
-
-const createAdminValidationSchema = z.object({
-    password: z.string({
-        error: "Password is required"
-    }),
-    admin: z.object({
-        name: z.string({
-            error: "Name is required!"
-        }),
-        email: z.string({
-            error: "Email is required!"
-        }),
-        contactNumber: z.string({
-            error: "Contact Number is required!"
-        })
-    })
+export const createUserSchema = z.object({
+  name: z.string().optional(),
+  email: z.string().email().optional(),
+  phone: z.string().optional(),
+  image: z.string().optional(),
+  role: z.enum(["CUSTOMER", "ADMIN", "VENDOR"]).optional(),
+  provider: z.enum(["LOCAL", "GOOGLE", "FACEBOOK"]).optional(),
+  providerId: z.string().optional()
 });
 
-const createDoctorValidationSchema = z.object({
-    password: z.string({
-        error: "Password is required"
-    }),
-    doctor: z.object({
-        name: z.string({
-            error: "Name is required!"
-        }),
-        email: z.string({
-            error: "Email is required!"
-        }),
-        contactNumber: z.string({
-            error: "Contact Number is required!"
-        }),
-        address: z.string().optional(),
-        registrationNumber: z.string({
-            error: "Reg number is required"
-        }),
-        experience: z.number().optional(),
-        appointmentFee: z.number({
-            error: "appointment fee is required"
-        }),
-        qualification: z.string({
-            error: "quilification is required"
-        }),
-        currentWorkingPlace: z.string({
-            error: "Current working place is required!"
-        }),
-        designation: z.string({
-            error: "Designation is required!"
-        })
-    })
-});
-
-export const UserValidation = {
-    createAdminValidationSchema,
-    createDoctorValidationSchema
-}
+export type CreateUserInput = z.infer<typeof createUserSchema>;

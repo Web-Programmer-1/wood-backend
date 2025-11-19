@@ -1,56 +1,37 @@
 import { Request, Response } from "express";
-import catchAsync from "../../shared/catchAsync";
 import { UserService } from "./user.service";
-import sendResponse from "../../shared/sendResponse";
-import pick from "../../helper/pick";
-import { userFilterableFields } from "./user.constant";
-import httpStatus from "http-status";
-
-
-const createUserController = catchAsync(async (req: Request, res: Response) => {
-  const result = await UserService.createUser(req);
-  console.log(result)
-  sendResponse(res, {
-    statusCode: httpStatus.CREATED,
-    success: true,
-    message: "User created successfully!",
-    data: result,
-  });
-});
-
-
-
-const getAllFromDB = catchAsync(async (req: Request, res: Response) => {
-    const filters = pick(req.query, userFilterableFields)
-    const options = pick(req.query, ["page", "limit", "sortBy", "sortOrder"]) 
-
-    const result = await UserService.getAllFromDB(filters, options);
-
-    sendResponse(res, {
-        statusCode: 200,
-        success: true,
-        message: "User retrive successfully!",
-        meta: result.meta,
-        data: result.data
-    })
-})
-
-const changeProfileStatus = catchAsync(async (req: Request, res: Response) => {
-
-    const { id } = req.params;
-    const result = await UserService.changeProfileStatus(id, req.body)
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Users profile status changed!",
-        data: result
-    })
-});
-
+import { createUserSchema } from "./user.validation";
 
 export const UserController = {
-    getAllFromDB,
-    changeProfileStatus,
-    createUserController
-}
+  async createUser(req: Request, res: Response) {
+    try {
+      const parsed = createUserSchema.parse(req.body);
+      const user = await UserService.createUser(parsed);
+      res.status(201).json({
+        message: "User created successfully",
+        data: user,
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  },
+
+  async getUsers(req: Request, res: Response) {
+    try {
+      const users = await UserService.getAllUsers();
+      res.json(users);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  },
+
+  async getUser(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const user = await UserService.getUserById(id);
+      res.json(user);
+    } catch (error: any) {
+      res.status(404).json({ error: error.message });
+    }
+  },
+};

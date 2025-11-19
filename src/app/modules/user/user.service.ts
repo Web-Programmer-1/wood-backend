@@ -1,106 +1,57 @@
-import { Request } from "express";
+import { CreateUserInput } from "./user.validation";
 import { prisma } from "../../shared/prisma";
-import bcrypt from "bcryptjs";
-import { IOptions, paginationHelper } from "../../helper/paginationHelper";
-import { Prisma, UserRole, UserStatus } from "@prisma/client";
-import { userSearchableFields } from "./user.constant";
-
-
-const createUser = async (req: Request) => {
-  const { email, password, role } = req.body;
-
-  const hashedPassword = await bcrypt.hash(password, 10);
-
-  const user = await prisma.user.create({
-    data: {
-      email,
-      password: hashedPassword,
-      role: role || UserRole.USER,
-    },
-  });
-
-  return user;
-};
-
-
-const getAllFromDB = async (params: any, options: IOptions) => {
-    const { page, limit, skip, sortBy, sortOrder } = paginationHelper.calculatePagination(options)
-    const { searchTerm, ...filterData } = params;
-
-    const andConditions: Prisma.UserWhereInput[] = [];
-
-    if (searchTerm) {
-        andConditions.push({
-            OR: userSearchableFields.map(field => ({
-                [field]: {
-                    contains: searchTerm,
-                    mode: "insensitive"
-                }
-            }))
-        })
-    }
-
-    if (Object.keys(filterData).length > 0) {
-        andConditions.push({
-            AND: Object.keys(filterData).map(key => ({
-                [key]: {
-                    equals: (filterData as any)[key]
-                }
-            }))
-        })
-    }
-
-    const whereConditions: Prisma.UserWhereInput = andConditions.length > 0 ? {
-        AND: andConditions
-    } : {}
-
-    const result = await prisma.user.findMany({
-        skip,
-        take: limit,
-
-        where: whereConditions,
-        orderBy: {
-            [sortBy]: sortOrder
-        }
-    });
-
-    const total = await prisma.user.count({
-        where: whereConditions
-    });
-    return {
-        meta: {
-            page,
-            limit,
-            total
-        },
-        data: result
-    };
-}
-
-
-
-const changeProfileStatus = async (id: string, payload: { status: UserStatus }) => {
-    const userData = await prisma.user.findUniqueOrThrow({
-        where: {
-            id
-        }
-    })
-
-    const updateUserStatus = await prisma.user.update({
-        where: {
-            id
-        },
-        data: payload
-    })
-
-    return updateUserStatus;
-};
-
-
-
 
 export const UserService = {
-    getAllFromDB,
-    changeProfileStatus,
-    createUser
-}
+  async createUser(data: CreateUserInput) {
+    // Check if email already exists
+    if (data.email) {
+      const existingEmail = await prisma.user.findUnique({
+        where: { email: data.email },
+      });
+      if (existingEmail) throw new Error("Email already exists");
+    }
+
+    // Check if phone exists
+    if (data.phone) {
+      const existingPhone = await prisma.user.findFirst({
+        where: { phone: data.phone },
+      });
+      if (existingPhone) throw new Error("Phone already exists");
+    }
+
+    // Prepare data for Prisma
+    const preparedData: any = {
+      name: data.name || null,
+      email: data.email || null,
+      phone: data.phone || null,
+      image: data.image || null,
+      role: data.role ?? "CUSTOMER",
+      provider: data.provider ?? "LOCAL",
+      providerId: data.providerId || null,
+    };
+
+    // Include password only if provided and exists on data
+    if ("password" in data && (data as any).password) {
+      preparedData.password = (data as any).password;
+    }
+
+    // Create new user in DB
+    const user = await prisma.user.create({
+      data: preparedData,
+    });
+
+    return user;
+  },
+
+  async getAllUsers() {
+    return prisma.user.findMany({
+      orderBy: { createdAt: "desc" },
+    });
+  },
+
+  async getUserById(id: string) {
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (!user) throw new Error("User not found");
+    return user;
+  },
+};

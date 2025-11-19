@@ -1,31 +1,10 @@
-import express, { NextFunction, Request, Response } from 'express'
-import { UserController } from './user.controller';
-import { UserRole } from '@prisma/client';
-import auth from '../../middlewares/auth';
+import { Router } from "express";
+import { UserController } from "./user.controller";
 
+const router = Router();
 
-const router = express.Router();
+router.post("/register", UserController.createUser);
+router.get("/", UserController.getUsers);
+router.get("/:id", UserController.getUser);
 
-router.get(
-    "/",
-    auth(UserRole.ADMIN),
-    UserController.getAllFromDB
-)
-
-
-router.post(
-  "/register",
-  (req: Request, res: Response, next: NextFunction) => {
-    return UserController.createUserController(req, res, next);
-  }
-);
-
-
-router.patch(
-    '/:id/status',
-    auth(UserRole.ADMIN),
-    UserController.changeProfileStatus
-);
-
-
-export const userRoutes = router;
+export default router;

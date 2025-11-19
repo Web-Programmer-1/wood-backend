@@ -26,7 +26,7 @@ router.post(
     auth(
         UserRole.ADMIN,
         UserRole.MANAGER,
-        UserRole.USER,
+        UserRole.CUSTOMER,
         UserRole.EDITOR,
         UserRole.SALES
     ),

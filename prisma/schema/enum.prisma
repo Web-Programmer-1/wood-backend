@@ -1,29 +1,21 @@
 enum UserRole {
-    ADMIN
-    MANAGER
-    EDITOR
-    SALES
-    USER
+  CUSTOMER
+  VENDOR
+  ADMIN
 }
 
-enum UserStatus {
-    ACTIVE
-    INACTIVE
-    DELETED
+enum AuthProvider {
+  GOOGLE
+  LOCAL
 }
 
-enum Gender {
-    MALE
-    FEMALE
+enum CouponType {
+  PERCENTAGE
+  FLAT
 }
 
-
-enum PaymentStatus {
-    PAID
-    UNPAID
-}
-
-enum MaritalStatus {
-    MARRIED
-    UNMARRIED
+enum CouponTarget {
+  GLOBAL
+  VENDOR_ONLY
+  PRODUCT_ONLY
 }
