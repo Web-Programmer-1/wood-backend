@@ -1,119 +1,161 @@
-import { Request, Response } from "express";
-import catchAsync from "../../shared/catchAsync";
-import sendResponse from "../../shared/sendResponse";
+import { NextFunction, Request, response, Response } from "express";
 import { AuthService } from "./auth.service";
-import httpStatus from "http-status";
-
-const login = catchAsync(async (req: Request, res: Response) => {
-    const result = await AuthService.login(req.body);
-    const { accessToken, refreshToken, needPasswordChange } = result;
-
-    res.cookie("accessToken", accessToken, {
-        secure: true,
-        httpOnly: true,
-        sameSite: "none",
-        maxAge: 1000 * 60 * 60
-    })
-    res.cookie("refreshToken", refreshToken, {
-        secure: true,
-        httpOnly: true,
-        sameSite: "none",
-        maxAge: 1000 * 60 * 60 * 24 * 90
-    })
-
-    sendResponse(res, {
-        statusCode: 201,
-        success: true,
-        message: "User loggedin successfully!",
-        data: {
-            needPasswordChange
-        }
-    })
-})
-
-const refreshToken = catchAsync(async (req: Request, res: Response) => {
-    const { refreshToken } = req.cookies;
-
-    const result = await AuthService.refreshToken(refreshToken);
-    res.cookie("accessToken", result.accessToken, {
-        secure: true,
-        httpOnly: true,
-        sameSite: "none",
-        maxAge: 1000 * 60 * 60,
-    });
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Access token genereated successfully!",
-        data: {
-            message: "Access token genereated successfully!",
-        },
-    });
-});
-
-const changePassword = catchAsync(
-    async (req: Request & { user?: any }, res: Response) => {
-        const user = req.user;
-
-        const result = await AuthService.changePassword(user, req.body);
-
-        sendResponse(res, {
-            statusCode: httpStatus.OK,
-            success: true,
-            message: "Password Changed successfully",
-            data: result,
-        });
-    }
-);
-
-const forgotPassword = catchAsync(async (req: Request, res: Response) => {
-    await AuthService.forgotPassword(req.body);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Check your email!",
-        data: null,
-    });
-});
-
-const resetPassword = catchAsync(async (req: Request, res: Response) => {
-  // 1️ Extract token from header or body
-  const token = req.headers.authorization?.split(" ")[1] || req.body.token;
-  
-  // 2️ Extract userId and newPassword from body
-  const { userId, newPassword } = req.body;
-
-  // 3️ Call service
-  await AuthService.resetPassword(token, { userId, newPassword });
-
-  // 4️ Send response
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: "Password has been reset successfully!",
-    data: null,
-  });
-});
-
-const getMe = catchAsync(async (req: Request, res: Response) => {
-    const userSession = req.cookies;
-    const result = await AuthService.getMe(userSession);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "User retrive successfully!",
-        data: result,
-    });
-});
 
 export const AuthController = {
-    login,
-    refreshToken,
-    changePassword,
-    resetPassword,
-    forgotPassword,
-    getMe
-}
+  async register(req:Request, res:Response) {
+    try {
+      const data = await AuthService.register(req.body);
+      res.json(data);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  },
+
+  async verifyEmail(req:Request, res:Response) {
+    try {
+      const data = await AuthService.verifyEmail(req.body);
+      res.json(data);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  },
+
+  async verifyPhone(req:Request, res:Response) {
+    try {
+      const data = await AuthService.verifyPhone(req.body);
+      res.json(data);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  },
+
+  async login(req:Request, res:Response) {
+    try {
+      const data = await AuthService.login(req.body, res);
+      res.json(data);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  },
+
+  async refreshToken(req:Request, res:Response) {
+    try {
+      const data = await AuthService.refreshToken(req, res);
+      res.json(data);
+    } catch (err: any) {
+      res.status(401).json({ message: err.message });
+    }
+  },
+
+
+
+
+  //  Send Single Send OTP using forgot password and reset password
+
+  async sendOTP(req: Request, res: Response) {
+  try {
+    const data = await AuthService.sendOTP(req.body);
+    res.json(data);
+  } catch (err: any) {
+    res.status(400).json({ message: err.message });
+  }
+},
+
+
+
+
+
+
+
+
+
+
+
+async resetPassword(req: Request, res: Response) {
+  try {
+    const { identifier, otp, newPassword } = req.body;
+
+    const data = await AuthService.resetPassword(identifier, otp, newPassword);
+
+    res.json(data);
+  } catch (err: any) {
+    res.status(400).json({ message: err.message });
+  }
+},
+
+   
+  //  Forgot Password -------------------
+
+  async forgotPassword(req: Request, res: Response) {
+  try {
+    const data = await AuthService.forgotPassword(req.body);
+    res.json(data);
+  } catch (err: any) {
+    res.status(400).json({ message: err.message });
+  }
+},
+
+
+
+
+
+
+
+
+async getMe(req: Request, res: Response) {
+  try {
+    const data = await AuthService.getMe(req);
+    res.json(data);
+  } catch (err: any) {
+    res.status(401).json({ message: err.message });
+  }
+},
+
+async getAllUsers(req: Request, res: Response) {
+  try {
+    const data = await AuthService.getAllUsers();
+    res.json(data);
+  } catch (err: any) {
+    res.status(400).json({ message: err.message });
+  }
+},
+
+async getUserById(req: Request, res: Response) {
+  try {
+    const data = await AuthService.getUserById(req.params.id);
+    res.json(data);
+  } catch (err: any) {
+    res.status(404).json({ message: err.message });
+  }
+},
+
+async updateUser(req: Request, res: Response) {
+  try {
+    const data = await AuthService.updateUser(req.params.id, req.body);
+    res.json(data);
+  } catch (err: any) {
+    res.status(400).json({ message: err.message });
+  }
+},
+
+async deleteUser(req: Request, res: Response) {
+  try {
+    const data = await AuthService.deleteUser(req.params.id);
+    res.json(data);
+  } catch (err: any) {
+    res.status(400).json({ message: err.message });
+  }
+},
+
+
+
+
+
+
+
+
+
+
+
+
+};

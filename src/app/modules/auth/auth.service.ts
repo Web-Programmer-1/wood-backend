@@ -1,209 +1,621 @@
-import { UserStatus } from "@prisma/client"
-import { prisma } from "../../shared/prisma"
-import bcrypt from "bcryptjs";
-import { Secret } from 'jsonwebtoken'
-import { jwtHelper } from "../../helper/jwtHelper";
-import ApiError from "../../errors/ApiError";
-import httpStatus from "http-status"
-import config from "../../../config";
-import emailSender from "./emailSender";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+
+import nodemailer from "nodemailer";
+import { generateOTP } from "../../../utils/otp";
+import { sendSMS } from "../../../utils/sendSMS";
+
+import { prisma } from "../../shared/prisma";
+import redis from "../../../utils/redis";
+import { IEmailVerify, IRegister, RegisterBody } from "./auth.interface";
+import {  Request, Response } from "express";
 
 
-interface ResetPasswordPayload {
-  userId: string;       // from frontend
-  newPassword: string;  // from frontend
-}
-
-const login = async (payload: { email: string, password: string }) => {
-    const user = await prisma.user.findUniqueOrThrow({
-        where: {
-            email: payload.email,
-            status: UserStatus.ACTIVE
-        }
-    })
-
-    const isCorrectPassword = await bcrypt.compare(payload.password, user.password);
-    if (!isCorrectPassword) {
-        throw new ApiError(httpStatus.BAD_REQUEST, "Password is incorrect!")
-    }
-
-    const accessToken = jwtHelper.generateToken({ email: user.email, role: user.role }, config.jwt.jwt_secret as Secret, "1h");
-
-    const refreshToken = jwtHelper.generateToken({ email: user.email, role: user.role }, config.jwt.refresh_token_secret as Secret, "90d");
-
-    return {
-        accessToken,
-        refreshToken,
-        needPasswordChange: user.needPasswordChange
-    }
-}
-
-const refreshToken = async (token: string) => {
-    let decodedData;
-    try {
-        decodedData = jwtHelper.verifyToken(token, config.jwt.refresh_token_secret as Secret);
-    }
-    catch (err) {
-        throw new Error("You are not authorized!")
-    }
-
-    const userData = await prisma.user.findUniqueOrThrow({
-        where: {
-            email: decodedData.email,
-            status: UserStatus.ACTIVE
-        }
-    });
-
-    const accessToken = jwtHelper.generateToken({
-        email: userData.email,
-        role: userData.role
-    },
-        config.jwt.jwt_secret as Secret,
-        config.jwt.expires_in as string
-    );
-
-    return {
-        accessToken,
-        needPasswordChange: userData.needPasswordChange
-    };
-
-};
-
-const changePassword = async (user: any, payload: any) => {
-    const userData = await prisma.user.findUniqueOrThrow({
-        where: {
-            email: user.email,
-            status: UserStatus.ACTIVE
-        }
-    });
-
-    const isCorrectPassword: boolean = await bcrypt.compare(payload.oldPassword, userData.password);
-
-    if (!isCorrectPassword) {
-        throw new Error("Password incorrect!")
-    }
-
-    const hashedPassword: string = await bcrypt.hash(payload.newPassword, Number(config.salt_round));
-
-    await prisma.user.update({
-        where: {
-            email: userData.email
-        },
-        data: {
-            password: hashedPassword,
-            needPasswordChange: false
-        }
-    })
-
-    return {
-        message: "Password changed successfully!"
-    }
-};
-
-const forgotPassword = async (payload: { email: string }) => {
-  if (!payload.email) {
-    throw new Error("Email is required!");
-  }
-
-  // Only 'email' allowed in findUnique()
-  const userData = await prisma.user.findUniqueOrThrow({
-    where: { email: payload.email },
-  });
-
-  if (userData.status !== UserStatus.ACTIVE) {
-    throw new Error("User is not active!");
-  }
-
-  // Generate reset token
-  const resetPassToken = jwtHelper.generateToken(
-    { email: userData.email, role: userData.role },
-    config.jwt.reset_pass_secret as Secret,
-    config.jwt.reset_pass_token_expires_in as string
-  );
-
-  // Construct link
-  const resetPassLink = `${config.reset_pass_link}?userId=${userData.id}&token=${resetPassToken}`;
-
-  // Send email
-  await emailSender(
-    userData.email,
-    `
-    <div style="font-family:sans-serif;line-height:1.5">
-      <p>Dear ${userData.email || "User"},</p>
-      <p>You requested a password reset. Please click below:</p>
-      <p>
-        <a href="${resetPassLink}" 
-           style="background-color:#008E48;color:#fff;padding:10px 20px;text-decoration:none;border-radius:5px;">
-           Reset Password
-        </a>
-      </p>
-      <p>If you did not request this, you can ignore this email.</p>
-      <p>— PH Health Care Team</p>
-    </div>
-    `
-  );
-
-  return { message: "Password reset link sent to your email!" };
-};
-
-
-const resetPassword = async (token: string, payload: ResetPasswordPayload) => {
-  if (!payload.userId) {
-    throw new ApiError(httpStatus.BAD_REQUEST, "User ID is required!");
-  }
-  if (!payload.newPassword) {
-    throw new ApiError(httpStatus.BAD_REQUEST, "New password is required!");
-  }
-
-  // 2️ Fetch user by ID
-  const user = await prisma.user.findUniqueOrThrow({ where: { id: payload.userId } });
-
-  if (user.status !== UserStatus.ACTIVE) {
-    throw new ApiError(httpStatus.FORBIDDEN, "User is not active!");
-  }
-
-  // 3️ Hash new password
-  const hashedPassword = await bcrypt.hash(payload.newPassword, Number(config.salt_round));
-
-  // 4️ Update password
-  await prisma.user.update({
-    where: { id: payload.userId },
-    data: { password: hashedPassword },
-  });
-
-  return { message: "Password reset successfully!" };
-};
-
-
-
-const getMe = async (session: any) => {
-    const accessToken = session.accessToken;
-    const decodedData = jwtHelper.verifyToken(accessToken, config.jwt.jwt_secret as Secret);
-
-    const userData = await prisma.user.findUniqueOrThrow({
-        where: {
-            email: decodedData.email,
-            status: UserStatus.ACTIVE
-        }
-    })
-
-    const { id, email, role, needPasswordChange, status } = userData;
-
-    return {
-        id,
-        email,
-        role,
-        needPasswordChange,
-        status
-    }
-
-}
 
 export const AuthService = {
-    login,
-    changePassword,
-    forgotPassword,
+  /* ==========================
+        OTP SAVE
+  ========================== */
+  async saveOTP(key: string, otp: string) {
+    if (redis) {
+      await redis.setEx(key, 300, otp);
+    } else {
+      await prisma.oTP.create({
+        data: {
+          code: otp,
+          email: key.includes("EMAIL") ? key.split(":")[2] : null,
+          phone: key.includes("PHONE") ? key.split(":")[2] : null,
+          expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+        },
+      });
+    }
+  },
+
+  async getOTP(key: string) {
+    if (redis) {
+      return await redis.get(key);
+    }
+
+    const otp = await prisma.oTP.findFirst({
+      where: {
+        OR: [
+          { email: key.includes("EMAIL") ? key.split(":")[2] : undefined },
+          { phone: key.includes("PHONE") ? key.split(":")[2] : undefined },
+        ],
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (!otp || otp.expiresAt < new Date()) return null;
+
+    return otp.code;
+  },
+
+  /* ==========================
+        SEND EMAIL OTP
+  ========================== */
+  async sendEmailOTP(email: string) {
+    const otp = generateOTP();
+    const key = `OTP:EMAIL:${email}`;
+    await this.saveOTP(key, otp);
+
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+
+    await transporter.sendMail({
+      to: email,
+      subject: "Your OTP Code",
+      html: `<h2>Your OTP Code is: <b>${otp}</b></h2>`,
+    });
+  },
+
+  /* ==========================
+        SEND PHONE OTP
+  ========================== */
+  async sendPhoneOTP(phone: string) {
+    const otp = generateOTP();
+    const key = `OTP:PHONE:${phone}`;
+    await this.saveOTP(key, otp);
+    await sendSMS(phone, `Your OTP Code is: ${otp}`);
+  },
+
+
+  async getLoginAttempt(userId: string) {
+    let attempt = await prisma.loginAttempt.findUnique({ where: { userId } });
+
+    if (!attempt) {
+      attempt = await prisma.loginAttempt.create({
+        data: { userId },
+      });
+    }
+
+    return attempt;
+  },
+
+  async validateLoginAttempt(userId: string) {
+    const attempt = await this.getLoginAttempt(userId);
+
+    if (attempt.lockedUntil && attempt.lockedUntil > new Date()) {
+      throw new Error("Account locked for 15 minutes");
+    }
+  },
+
+  async registerFailedAttempt(userId: string) {
+    const attempt = await this.getLoginAttempt(userId);
+    const count = attempt.attemptCount + 1;
+
+    if (count >= 5) {
+      await prisma.loginAttempt.update({
+        where: { userId },
+        data: {
+          attemptCount: 5,
+          lockedUntil: new Date(Date.now() + 15 * 60 * 1000),
+          lastAttemptAt: new Date(),
+        },
+      });
+
+      throw new Error("Too many failed attempts. Account locked for 15 minutes.");
+    }
+
+    await prisma.loginAttempt.update({
+      where: { userId },
+      data: {
+        attemptCount: { increment: 1 },
+        lastAttemptAt: new Date(),
+      },
+    });
+  },
+
+  async resetLoginAttempt(userId: string) {
+    await prisma.loginAttempt.update({
+      where: { userId },
+      data: {
+        attemptCount: 0,
+        lockedUntil: null,
+        lastAttemptAt: new Date(),
+      },
+    });
+  },
+
+  
+
+  async register(body: IRegister) {
+  const { name, email, phone, password } = body;
+
+  const hash = await bcrypt.hash(password, 10);
+
+  return await prisma.$transaction(async (tx) => {
+    // -----------------------------------------
+    // 1️⃣ Create User + Profile (Inside Transaction)
+    // -----------------------------------------
+    const user = await tx.user.create({
+      data: {
+        name,
+        email,
+        phone,
+        passwordHash: hash,
+
+        profile: {
+          create: {
+            avatarUri: null,
+            bio: null,
+            gender: null,
+            dateOfBirth: null,
+
+            profession: null,
+            occupationType: null,
+            nationalId: null,
+
+            socialLinks: {},
+            verificationStatus: "PENDING",
+            profileCompleted: 0,
+          },
+        },
+      },
+      include: { profile: true },
+    });
+
+    // -----------------------------------------
+    // 2️⃣ Create Login Attempt row
+    // -----------------------------------------
+    await tx.loginAttempt.create({
+      data: { userId: user.id },
+    });
+
+    // -----------------------------------------
+    // 3️⃣ Send OTP (outside DB but inside flow)
+    // -----------------------------------------
+    if (email) await this.sendEmailOTP(email);
+    if (phone) await this.sendPhoneOTP(phone);
+
+    // -----------------------------------------
+    // 4️⃣ Final Response
+    // -----------------------------------------
+    return {
+      message: "User registered successfully. OTP sent.",
+      userId: user.id,
+      profileId: user?.profile?.id,
+    };
+  });
+},
+
+
+
+  async verifyEmail(body:IEmailVerify) {
+  const { email, otp } = body;
+
+  const key = `OTP:EMAIL:${email}`;
+  const stored = await this.getOTP(key);
+
+  if (stored !== otp) throw new Error("Invalid OTP");
+
+  // STEP 1 → find user by email (email is NOT unique)
+  const user = await prisma.user.findFirst({
+    where: { email },
+  });
+
+  if (!user) throw new Error("User not found with this email");
+
+  // STEP 2 → update using unique id
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { emailVerified: true },
+  });
+
+  return { message: "Email verified successfully." };
+},
+
+
+
+  /* ==========================
+        VERIFY PHONE
+  ========================== */
+
+
+  async verifyPhone(body:any) {
+  const { phone, otp } = body;
+
+  const key = `OTP:PHONE:${phone}`;
+  const stored = await this.getOTP(key);
+
+  if (stored !== otp) throw new Error("Invalid OTP");
+
+  // STEP 1 → phone দিয়ে user খুঁজো (since phone is NOT unique)
+  const user = await prisma.user.findFirst({
+    where: { phone },
+  });
+
+  if (!user) throw new Error("User not found with this phone number");
+
+  // STEP 2 → এখন user.id দিয়ে safe update
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { phoneVerified: true },
+  });
+
+  return { message: "Phone verified." };
+},
+
+
+
+
+
+async refreshToken(req: Request, res: Response) {
+  const token = req.cookies.refreshToken;
+  if (!token) throw new Error("Unauthorized");
+
+  try {
+    // Verify refresh token
+    const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET!) as any;
+
+    // Create new access token
+    const newAccessToken = jwt.sign(
+      { id: decoded.id },
+      process.env.JWT_ACCESS_SECRET!,
+      { expiresIn: "1h"}
+    );
+
+    // Set it in cookies again
+    const isProd = process.env.NODE_ENV === "production";
+
+    res.cookie("accessToken", newAccessToken, {
+      httpOnly: true,
+      secure: isProd ? true : false,
+      sameSite: isProd ? "none" : "lax",
+      maxAge: 15 * 60 * 1000, // 15 minutes
+    });
+
+    return { 
+      message: "Token refreshed",
+      accessToken: newAccessToken 
+    };
+
+  } catch (err) {
+    console.log("Refresh-token error =>", err);
+    throw new Error("Invalid refresh token");
+  }
+},
+
+
+
+
+
+
+
+
+
+  /* ==========================
+            LOGIN
+  ========================== */
+
+
+
+async login(body: any, res: Response) {
+  const { email, password } = body;
+
+  const user = await prisma.user.findFirst({ where: { email } });
+  if (!user) throw new Error("Invalid credentials");
+
+  await this.validateLoginAttempt(user.id);
+
+  const match = await bcrypt.compare(password, user.passwordHash);
+  if (!match) {
+    await this.registerFailedAttempt(user.id);
+    throw new Error("Invalid credentials");
+  }
+
+  await this.resetLoginAttempt(user.id);
+
+  // const accessToken = jwt.sign({ id: user.id }, process.env.JWT_ACCESS_SECRET!, {
+  //   expiresIn: "15m",
+  // });
+
+  // const refreshToken = jwt.sign({ id: user.id }, process.env.JWT_REFRESH_SECRET!, {
+  //   expiresIn: "70d",
+  // });
+
+
+  const accessToken = jwt.sign(
+  { id: user.id, role: user.role },
+  process.env.JWT_ACCESS_SECRET!,
+  { expiresIn: "15m" }
+);
+
+const refreshToken = jwt.sign(
+  { id: user.id, role: user.role },
+  process.env.JWT_REFRESH_SECRET!,
+  { expiresIn: "7d" }
+);
+
+
+  // Set Cookies
+  res.cookie("accessToken", accessToken, {
+    httpOnly: true,
+    secure: false, // localhost
+    sameSite: "lax",
+    maxAge: 15 * 60 * 1000,
+  });
+
+  res.cookie("refreshToken", refreshToken, {
+    httpOnly: true,
+    secure: false,
+    sameSite: "lax",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
+
+  // Return also in body
+  return {
+    message: "Logged in successfully.",
+    accessToken,
     refreshToken,
-    resetPassword,
-    getMe
+  };
+},
+
+
+
+
+
+  /* ==========================
+        REFRESH TOKEN
+  ========================== */
+
+
+async forgotPassword(body: { identifier: string }) {
+  const { identifier } = body;
+
+  if (!identifier) throw new Error("Email or phone is required");
+
+  // Find user by email OR phone
+  const user = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { email: identifier },
+        { phone: identifier },
+      ]
+    }
+  });
+
+  if (!user) {
+    throw new Error("No user found with this email or phone");
+  }
+
+  // Send OTP to email or phone
+  if (identifier.includes("@")) {
+    await this.sendEmailOTP(identifier);
+  } else {
+    await this.sendPhoneOTP(identifier);
+  }
+
+  return { 
+    message: "OTP sent for password reset",
+    identifier 
+  };
+},
+
+
+
+
+//  Send single OTP using forgot password and reset password
+
+async sendOTP(body: { identifier: string }) {
+  const { identifier } = body;
+
+  if (!identifier) throw new Error("Email or phone is required");
+
+  // Check user exists
+  const user = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { email: identifier },
+        { phone: identifier }
+      ]
+    }
+  });
+
+  if (!user) throw new Error("No user found with this email/phone");
+
+  // Send OTP
+  if (identifier.includes("@")) {
+    await this.sendEmailOTP(identifier);
+  } else {
+    await this.sendPhoneOTP(identifier);
+  }
+
+  return { message: "OTP sent successfully" };
+},
+
+
+
+
+
+
+
+
+
+
+// async resetPassword(body: any) {
+//   const { identifier, otp, newPassword } = body;
+
+//   let key = identifier.includes("@")
+//     ? `RESET:EMAIL:${identifier}`
+//     : `RESET:PHONE:${identifier}`;
+
+//   const stored = await this.getOTP(key);
+//   if (stored !== otp) throw new Error("Invalid OTP");
+
+//   const user = await prisma.user.findFirst({
+//     where: {
+//       OR: [{ email: identifier }, { phone: identifier }],
+//     },
+//   });
+
+//   if (!user) throw new Error("User not found");
+
+//   const hash = await bcrypt.hash(newPassword, 10);
+
+//   await prisma.user.update({
+//     where: { id: user.id },
+//     data: { passwordHash: hash },
+//   });
+
+//   return { message: "Password reset successful" };
+// },
+
+
+    // ------------GetMe Profile --------
+
+
+
+
+    async resetPassword(identifier: string, otp: string, newPassword: string) {
+  const user = await prisma.user.findFirst({
+    where: {
+      OR: [{ email: identifier }, { phone: identifier }]
+    }
+  });
+
+  if (!user) throw new Error("User not found");
+
+  // Find OTP
+  const savedOTP = await prisma.oTP.findFirst({
+    where: {
+      OR: [
+        { email: user.email ?? undefined },
+        { phone: user.phone ?? undefined }
+      ]
+    },
+    orderBy: { createdAt: "desc" }
+  });
+
+  if (!savedOTP || savedOTP.code !== otp) {
+    throw new Error("Invalid OTP");
+  }
+
+  // Update password
+  const hashed = await bcrypt.hash(newPassword, 10);
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      passwordHash: hashed
+    }
+  });
+
+  return { message: "Password reset successful" };
+},
+
+
+
+
+
+
+
+    async getMe(req: Request) {
+  const token = req.cookies.accessToken;
+  if (!token) throw new Error("Unauthorized");
+
+  const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET!) as any;
+
+  const user = await prisma.user.findUnique({
+    where: { id: decoded.id },
+    include: { profile: true },
+  });
+
+  return user;
+},
+
+
+//      ----------- Get All Users -------------
+
+async getAllUsers() {
+  return await prisma.user.findMany({
+    include: { profile: true },
+  });
+},
+
+
+//  ---------GetUserById ----------
+
+
+async getUserById(id: string) {
+  const user = await prisma.user.findUnique({
+    where: { id },
+    include: { profile: true },
+  });
+
+  if (!user) throw new Error("User not found");
+  return user;
+},
+
+
+
+
+//  User Update --------------------
+
+async updateUser(id: string, body: any) {
+  return await prisma.user.update({
+    where: { id },
+    data: {
+      name: body.name,
+      email: body.email,
+      phone: body.phone,
+
+      profile: body.profile
+        ? {
+            update: {
+              bio: body.profile.bio,
+              avatarUri: body.profile.avatarUri,
+              gender: body.profile.gender,
+              profession: body.profile.profession,
+              occupationType: body.profile.occupationType,
+              socialLinks: body.profile.socialLinks,
+            },
+          }
+        : undefined,
+    },
+    include: { profile: true },
+  });
+},
+
+
+
+
+
+
+// User delete ----------------
+
+async deleteUser(id: string) {
+  await prisma.user.delete({
+    where: { id }
+  });
+
+  return { message: "User deleted successfully" };
 }
+
+
+};

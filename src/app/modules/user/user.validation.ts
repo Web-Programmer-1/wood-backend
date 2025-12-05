@@ -1,13 +1,8 @@
 import { z } from "zod";
 
 export const createUserSchema = z.object({
-  name: z.string().optional(),
+  name: z.string(),
   email: z.string().email().optional(),
-  phone: z.string().optional(),
-  image: z.string().optional(),
-  role: z.enum(["CUSTOMER", "ADMIN", "VENDOR"]).optional(),
-  provider: z.enum(["LOCAL", "GOOGLE", "FACEBOOK"]).optional(),
-  providerId: z.string().optional()
+  phone: z.string().min(11).optional(),
+  password: z.string().min(8),
 });
-
-export type CreateUserInput = z.infer<typeof createUserSchema>;

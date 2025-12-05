@@ -1,16 +1,111 @@
-model User {
-  id            String       @id @default(cuid())
-  name          String?
-  email         String?      @unique
-  phone         String?      @unique
-  image         String?
-  password      String?      // optional
-  role          UserRole     @default(CUSTOMER)
-  provider      AuthProvider @default(LOCAL)
-  providerId    String?
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
 
-  @@index([providerId])
+model User {
+  id            String         @id @default(uuid())
+  name          String
+  email         String?        
+  phone         String?    
+  passwordHash  String
+  
+  role          UserRole       @default(CUSTOMER)
+  status        UserStatus     @default(ACTIVE)
+  
+  emailVerified Boolean        @default(false)
+  phoneVerified Boolean        @default(false)
+  
+  profile       UserProfile?
+  loginAttempt  LoginAttempt?
+
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  
   @@map("users")
 }
+
+// model UserProfile {
+//   id           String    @id @default(uuid())
+//   userId       String    @unique
+  
+//   avatarUri    String?
+//   dateOfBirth  DateTime?
+//   gender String?
+//   bio String?
+  
+//   profession String?
+//   occupationType String?
+//   socialLinks     Json?
+//   verificationStatus VerificationStatus? @default(PENDING)
+
+//   nationalId String?
+
+//   profileCompleted Int? @default(0) //Dashboard এ "Profile 60% complete" দেখানো
+  
+  
+
+  
+//   createdAt    DateTime  @default(now())
+//   updatedAt    DateTime  @updatedAt
+  
+//   user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+//   @@map("user_profiles")
+// }
+
+
+model UserProfile {
+  id           String    @id @default(uuid())
+  userId       String    @unique
+
+  avatarUri     String?
+  bio           String?
+  gender        String?
+  dateOfBirth   DateTime?
+
+  profession      String?
+  occupationType  String?
+  nationalId      String?
+
+  socialLinks     Json?        // { facebook: "", linkedin: "", website: "" }
+
+  // ----- VERIFICATION & PROFILE STATUS -----
+  verificationStatus VerificationStatus @default(PENDING)
+  profileCompleted   Int                @default(0)   // For dashboard profile completion bar
+
+  // ----- SYSTEM INFO -----
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // ----- RELATION -----
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_profiles")
+}
+
+
+
+
+
+model LoginAttempt {
+  id            String    @id @default(uuid())
+  userId        String    @unique
+  
+  attemptCount  Int       @default(0)
+  lockedUntil   DateTime?
+  lastAttemptAt DateTime  @default(now())
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("login_attempts")
+}
+
+model OTP {
+  id          String   @id @default(uuid())
+  email       String?
+  phone       String?
+  code        String
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+}
+  

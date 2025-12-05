@@ -3,35 +3,29 @@ import { UserService } from "./user.service";
 import { createUserSchema } from "./user.validation";
 
 export const UserController = {
-  async createUser(req: Request, res: Response) {
+  async register(req: Request, res: Response) {
     try {
       const parsed = createUserSchema.parse(req.body);
       const user = await UserService.createUser(parsed);
-      res.status(201).json({
-        message: "User created successfully",
-        data: user,
-      });
-    } catch (error: any) {
-      res.status(400).json({ error: error.message });
+
+      res.status(201).json({ message: "User Registered", data: user });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
     }
   },
 
   async getUsers(req: Request, res: Response) {
-    try {
-      const users = await UserService.getAllUsers();
-      res.json(users);
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
+    const users = await UserService.getUsers();
+    res.json(users);
   },
 
   async getUser(req: Request, res: Response) {
-    try {
-      const { id } = req.params;
-      const user = await UserService.getUserById(id);
-      res.json(user);
-    } catch (error: any) {
-      res.status(404).json({ error: error.message });
-    }
+    const user = await UserService.getById(req.params.id);
+    res.json(user);
+  },
+
+  async updateUser(req: Request, res: Response) {
+    const updated = await UserService.updateUser(req.params.id, req.body);
+    res.json(updated);
   },
 };
