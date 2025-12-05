@@ -21,34 +21,6 @@ model User {
   @@map("users")
 }
 
-// model UserProfile {
-//   id           String    @id @default(uuid())
-//   userId       String    @unique
-  
-//   avatarUri    String?
-//   dateOfBirth  DateTime?
-//   gender String?
-//   bio String?
-  
-//   profession String?
-//   occupationType String?
-//   socialLinks     Json?
-//   verificationStatus VerificationStatus? @default(PENDING)
-
-//   nationalId String?
-
-//   profileCompleted Int? @default(0) //Dashboard এ "Profile 60% complete" দেখানো
-  
-  
-
-  
-//   createdAt    DateTime  @default(now())
-//   updatedAt    DateTime  @updatedAt
-  
-//   user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-//   @@map("user_profiles")
-// }
 
 
 model UserProfile {
