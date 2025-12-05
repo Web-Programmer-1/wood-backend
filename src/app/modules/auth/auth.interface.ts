@@ -1,5 +1,5 @@
 import { UserRole, UserStatus } from "@prisma/client";
-
+// add
 export interface RegisterInput {
   name: string;
   email?: string | null;
