@@ -38,10 +38,10 @@ authRouter.post("/forgot-password", AuthController.forgotPassword);
 authRouter.post("/reset-password", AuthController.resetPassword);
 
 // GET CURRENT USER
-authRouter.get("/me", auth(UserRole.CUSTOMER), AuthController.getMe);
+authRouter.get("/me", AuthController.getMe);
 
 // USER CRUD
-authRouter.get("/users", auth(UserRole.ADMIN),  AuthController.getAllUsers);
+authRouter.get("/users",  AuthController.getAllUsers);
 authRouter.get("/users/:id", AuthController.getUserById);
 authRouter.patch("/users/:id", AuthController.updateUser);
 authRouter.delete("/users/:id", AuthController.deleteUser);

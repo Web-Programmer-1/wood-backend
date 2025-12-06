@@ -13,9 +13,7 @@ import {  Request, Response } from "express";
 
 
 export const AuthService = {
-  /* ==========================
-        OTP SAVE
-  ========================== */
+
   async saveOTP(key: string, otp: string) {
     if (redis) {
       await redis.setEx(key, 300, otp);
@@ -144,66 +142,121 @@ export const AuthService = {
 
   
 
-  async register(body: IRegister) {
+//   async register(body: IRegister) {
+//   const { name, email, phone, password } = body;
+
+//   const hash = await bcrypt.hash(password, 10);
+
+//   return await prisma.$transaction(async (tx) => {
+   
+//     const user = await tx.user.create({
+//       data: {
+//         name,
+//         email,
+//         phone,
+//         passwordHash: hash,
+
+//         profile: {
+//           create: {
+//             avatarUri: null,
+//             bio: null,
+//             gender: null,
+//             dateOfBirth: null,
+
+//             profession: null,
+//             occupationType: null,
+//             nationalId: null,
+
+//             socialLinks: {},
+//             verificationStatus: "PENDING",
+//             profileCompleted: 0,
+//           },
+//         },
+//       },
+//       include: { profile: true },
+//     });
+
+//     // -----------------------------------------
+//     // 2️⃣ Create Login Attempt row
+//     // -----------------------------------------
+//     await tx.loginAttempt.create({
+//       data: { userId: user.id },
+//     });
+
+//     // -----------------------------------------
+//     // 3️⃣ Send OTP (outside DB but inside flow)
+//     // -----------------------------------------
+//     if (email) await this.sendEmailOTP(email);
+//     if (phone) await this.sendPhoneOTP(phone);
+
+//     // -----------------------------------------
+//     // 4️⃣ Final Response
+//     // -----------------------------------------
+//     return {
+//       message: "User registered successfully. OTP sent.",
+//       userId: user.id,
+//       profileId: user?.profile?.id,
+//     };
+//   });
+// },
+
+
+
+async register(body: IRegister) {
   const { name, email, phone, password } = body;
 
-  const hash = await bcrypt.hash(password, 10);
+  console.log(name, email, phone, password)
 
-  return await prisma.$transaction(async (tx) => {
-    // -----------------------------------------
-    // 1️⃣ Create User + Profile (Inside Transaction)
-    // -----------------------------------------
+  if (!password) throw new Error("Password is required");
+
+  const hash = await bcrypt.hash(password, 10); // hash password
+
+  // Perform database operations in transaction
+  // Set timeout to 30 seconds as a safety measure
+  const result = await prisma.$transaction(async (tx) => {
     const user = await tx.user.create({
       data: {
         name,
         email,
         phone,
-        passwordHash: hash,
-
+        passwordHash: hash, // store hashed password
         profile: {
-          create: {
-            avatarUri: null,
-            bio: null,
-            gender: null,
-            dateOfBirth: null,
-
-            profession: null,
-            occupationType: null,
-            nationalId: null,
-
-            socialLinks: {},
-            verificationStatus: "PENDING",
-            profileCompleted: 0,
-          },
+          create: { avatarUri: null, bio: null, gender: null, verificationStatus: "PENDING", profileCompleted: 0 },
         },
       },
       include: { profile: true },
     });
 
-    // -----------------------------------------
-    // 2️⃣ Create Login Attempt row
-    // -----------------------------------------
-    await tx.loginAttempt.create({
-      data: { userId: user.id },
-    });
+    await tx.loginAttempt.create({ data: { userId: user.id } });
 
-    // -----------------------------------------
-    // 3️⃣ Send OTP (outside DB but inside flow)
-    // -----------------------------------------
-    if (email) await this.sendEmailOTP(email);
-    if (phone) await this.sendPhoneOTP(phone);
-
-    // -----------------------------------------
-    // 4️⃣ Final Response
-    // -----------------------------------------
     return {
       message: "User registered successfully. OTP sent.",
       userId: user.id,
       profileId: user?.profile?.id,
     };
+  }, {
+    timeout: 30000, // 30 seconds timeout
   });
-},
 
+  // Send OTPs outside the transaction to avoid timeout
+  // These are external API calls that can take time
+  // Wrap in try-catch so OTP failures don't fail registration
+  try {
+    if (email) await this.sendEmailOTP(email);
+  } catch (error: any) {
+    console.error("Failed to send email OTP:", error.message);
+    // Don't throw - user is already created, OTP can be resent later
+  }
+
+  try {
+    if (phone) await this.sendPhoneOTP(phone);
+  } catch (error: any) {
+    console.error("Failed to send phone OTP:", error.message);
+    // Don't throw - user is already created, OTP can be resent later
+  }
+
+  return result;
+},
 
 
   async verifyEmail(body:IEmailVerify) {
