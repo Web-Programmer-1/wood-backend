@@ -11,7 +11,7 @@ export const authRouter = express.Router();
 // REGISTER
 authRouter.post("/register", AuthController.register);
 
-// VERIFY EMAIL
+//  verify email
 authRouter.post("/verify-email", AuthController.verifyEmail);
 
 // VERIFY PHONE
